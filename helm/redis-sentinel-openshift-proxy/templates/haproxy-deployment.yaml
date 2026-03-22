@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-haproxy
+  namespace: {{ include "redis-sentinel-openshift-proxy.namespace" . }}
+spec:
+  replicas: {{ .Values.haproxy.replicas }}
+  selector:
+    matchLabels:
+      app: redis-haproxy
+  template:
+    metadata:
+      labels:
+        app: redis-haproxy
+    spec:
+      serviceAccountName: default
+      securityContext:
+{{ toYaml .Values.podSecurityContext | indent 8 }}
+      containers:
+        - name: haproxy
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/opt/redis/scripts/entrypoint.sh", "haproxy"]
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: REDIS_HEADLESS_SERVICE
+              value: redis-headless
+          ports:
+            - containerPort: {{ .Values.haproxy.redisServicePort }}
+              name: redis
+            - containerPort: {{ .Values.haproxy.statsPort }}
+              name: stats
+          volumeMounts:
+            - name: haproxy-config
+              mountPath: /opt/redis/conf/haproxy.cfg
+              subPath: haproxy.cfg
+          readinessProbe:
+            tcpSocket:
+              port: {{ .Values.haproxy.redisServicePort }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: {{ .Values.haproxy.redisServicePort }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+{{ toYaml .Values.securityContext | indent 12 }}
+          resources:
+{{ toYaml .Values.resources | indent 12 }}
+      volumes:
+        - name: haproxy-config
+          configMap:
+            name: redis-config
+            items:
+              - key: haproxy.cfg
+                path: haproxy.cfg

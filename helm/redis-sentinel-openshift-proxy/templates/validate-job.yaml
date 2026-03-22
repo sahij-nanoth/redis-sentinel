@@ -1,0 +1,25 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: redis-validate
+  namespace: {{ include "redis-sentinel-openshift-proxy.namespace" . }}
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: validate
+          image: redis:7.2
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              echo "Checking sentinel master discovery"
+              redis-cli -h sentinel -p {{ .Values.sentinel.port }} SENTINEL get-master-addr-by-name {{ .Values.redis.masterName }}
+              echo "Writing test key through stable proxy"
+              redis-cli -h {{ .Values.service.redisProxyName }} -p {{ .Values.haproxy.redisServicePort }} SET xyz hello
+              echo "Reading test key through stable proxy"
+              redis-cli -h {{ .Values.service.redisProxyName }} -p {{ .Values.haproxy.redisServicePort }} GET xyz
+              echo "Replication info through stable proxy"
+              redis-cli -h {{ .Values.service.redisProxyName }} -p {{ .Values.haproxy.redisServicePort }} INFO replication

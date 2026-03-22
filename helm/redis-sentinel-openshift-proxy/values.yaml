@@ -1,0 +1,39 @@
+namespaceOverride: ""
+
+image:
+  repository: your-registry/redis-sentinel-rhel8
+  tag: "7.2"
+  pullPolicy: IfNotPresent
+
+redis:
+  replicas: 3
+  port: 6379
+  masterName: mymaster
+  storage:
+    size: 5Gi
+    storageClassName: ""
+
+sentinel:
+  replicas: 3
+  port: 26379
+  quorum: 2
+
+haproxy:
+  replicas: 2
+  redisServicePort: 6379
+  statsPort: 16379
+
+service:
+  redisProxyName: redis-proxy
+
+resources: {}
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+podSecurityContext:
+  seccompProfile:
+    type: RuntimeDefault

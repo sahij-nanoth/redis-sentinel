@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-haproxy
+  namespace: redis-sentinel
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: redis-haproxy
+  template:
+    metadata:
+      labels:
+        app: redis-haproxy
+    spec:
+      serviceAccountName: default
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: haproxy
+          image: your-registry/redis-sentinel-rhel8:7.2
+          imagePullPolicy: IfNotPresent
+          command: ["/opt/redis/scripts/entrypoint.sh", "haproxy"]
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: REDIS_HEADLESS_SERVICE
+              value: redis-headless
+          ports:
+            - containerPort: 6379
+              name: redis
+            - containerPort: 16379
+              name: stats
+          volumeMounts:
+            - name: haproxy-config
+              mountPath: /opt/redis/conf/haproxy.cfg
+              subPath: haproxy.cfg
+          readinessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: haproxy-config
+          configMap:
+            name: redis-config
+            items:
+              - key: haproxy.cfg
+                path: haproxy.cfg

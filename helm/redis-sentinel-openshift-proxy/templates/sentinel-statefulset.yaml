@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: sentinel
+  namespace: {{ include "redis-sentinel-openshift-proxy.namespace" . }}
+spec:
+  serviceName: sentinel-headless
+  replicas: {{ .Values.sentinel.replicas }}
+  selector:
+    matchLabels:
+      app: sentinel
+  template:
+    metadata:
+      labels:
+        app: sentinel
+    spec:
+      serviceAccountName: default
+      securityContext:
+{{ toYaml .Values.podSecurityContext | indent 8 }}
+      containers:
+        - name: sentinel
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/opt/redis/scripts/entrypoint.sh", "sentinel"]
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: MASTER_NAME
+              value: {{ .Values.redis.masterName | quote }}
+            - name: MASTER_HOST
+              value: {{ printf "redis-0.redis-headless.%s.svc.cluster.local" (include "redis-sentinel-openshift-proxy.namespace" .) | quote }}
+            - name: MASTER_PORT
+              value: {{ .Values.redis.port | quote }}
+            - name: SENTINEL_QUORUM
+              value: {{ .Values.sentinel.quorum | quote }}
+          ports:
+            - containerPort: {{ .Values.sentinel.port }}
+              name: sentinel
+          volumeMounts:
+            - name: redis-config
+              mountPath: /opt/redis/conf/redis.conf
+              subPath: redis.conf
+            - name: sentinel-config
+              mountPath: /opt/redis/conf/sentinel.conf
+              subPath: sentinel.conf
+          readinessProbe:
+            tcpSocket:
+              port: {{ .Values.sentinel.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: {{ .Values.sentinel.port }}
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          securityContext:
+{{ toYaml .Values.securityContext | indent 12 }}
+          resources:
+{{ toYaml .Values.resources | indent 12 }}
+      volumes:
+        - name: redis-config
+          configMap:
+            name: redis-config
+            items:
+              - key: redis.conf
+                path: redis.conf
+        - name: sentinel-config
+          configMap:
+            name: redis-config
+            items:
+              - key: sentinel.conf
+                path: sentinel.conf

@@ -1,0 +1,69 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-config
+  namespace: {{ include "redis-sentinel-openshift-proxy.namespace" . }}
+data:
+  redis.conf: |
+    bind 0.0.0.0
+    protected-mode no
+    port {{ .Values.redis.port }}
+    dir /data
+    dbfilename dump.rdb
+    appendonly yes
+    appendfilename "appendonly.aof"
+    appendfsync everysec
+    save 900 1
+    save 300 10
+    save 60 10000
+    logfile ""
+    loglevel notice
+    replica-read-only yes
+  sentinel.conf: |
+    port {{ .Values.sentinel.port }}
+    bind 0.0.0.0
+    protected-mode no
+    logfile ""
+    dir /tmp
+    sentinel resolve-hostnames yes
+    sentinel announce-hostnames yes
+    sentinel monitor {{ .Values.redis.masterName }} redis-0.redis-headless.{{ include "redis-sentinel-openshift-proxy.namespace" . }}.svc.cluster.local {{ .Values.redis.port }} {{ .Values.sentinel.quorum }}
+    sentinel down-after-milliseconds {{ .Values.redis.masterName }} 5000
+    sentinel failover-timeout {{ .Values.redis.masterName }} 60000
+    sentinel parallel-syncs {{ .Values.redis.masterName }} 1
+  haproxy.cfg: |
+    global
+      log stdout format raw local0
+      maxconn 20000
+      stats socket /tmp/haproxy.sock mode 660 level admin expose-fd listeners
+    defaults
+      log global
+      mode tcp
+      option tcplog
+      timeout connect 5s
+      timeout client 60s
+      timeout server 60s
+      retries 3
+    frontend redis_frontend
+      bind *:{{ .Values.haproxy.redisServicePort }}
+      default_backend redis_primary_backend
+    backend redis_primary_backend
+      mode tcp
+      option tcp-check
+      tcp-check connect
+      tcp-check send PING\r\n
+      tcp-check expect string +PONG
+      tcp-check send info\ replication\r\n
+      tcp-check expect string role:master
+      tcp-check send QUIT\r\n
+      tcp-check expect string +OK
+      default-server inter 2s fall 3 rise 2 on-marked-down shutdown-sessions
+      server redis-0 redis-0.redis-headless.{{ include "redis-sentinel-openshift-proxy.namespace" . }}.svc.cluster.local:{{ .Values.redis.port }} check
+      server redis-1 redis-1.redis-headless.{{ include "redis-sentinel-openshift-proxy.namespace" . }}.svc.cluster.local:{{ .Values.redis.port }} check
+      server redis-2 redis-2.redis-headless.{{ include "redis-sentinel-openshift-proxy.namespace" . }}.svc.cluster.local:{{ .Values.redis.port }} check
+    listen stats
+      bind *:{{ .Values.haproxy.statsPort }}
+      mode http
+      stats enable
+      stats uri /
+      stats refresh 10s
